@@ -1,12 +1,15 @@
 ﻿#pragma once
 #define _CRT_SECURE_NO_WARNINGS
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
-#include<stdio.h>
-#include<iostream>
-#include<WinSock2.h>
-#include<string>
-#include<fstream>
+#include <stdio.h>
+#include <iostream>
+#include <WinSock2.h>
+#include <string>
+#include <fstream>
 #include <tchar.h>
+#include <fcntl.h>
+#include <io.h>
+
 #pragma comment(lib, "Ws2_32.lib")
 
 using namespace std;
@@ -50,7 +53,7 @@ void mget(SOCKET soc, struct sockaddr_in &data, string cmd);
 void cd(SOCKET soc, string cmd);
 
 //8. Thay đổi đường dẫn dưới client
-void lcd(string cmd);
+void lcd(char cmd[]);
 
 //9 Xóa file
 void Delete(SOCKET soc, string cmd);
@@ -66,7 +69,8 @@ void rmdir(SOCKET soc, string cmd);
 void pwd(SOCKET soc);
 
 //14. Chuyển sang trạng thái passive
-
+bool passiveMode(SOCKET soc, SOCKET &dsoc, char cmd[]);
+bool activeMode(SOCKET soc, SOCKET &dsoc, char cmd[]);
 
 //15. Thoát khải Server
 void quit(SOCKET soc);

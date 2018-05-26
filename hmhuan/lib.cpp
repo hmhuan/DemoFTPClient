@@ -49,7 +49,7 @@ void replylogcode(int code)
 
 void chuanHoa(string &s)
 {
-	while (s[0] == ' ' || s[0] == '\t')
+	while (s[0] == ' ' || s[0] == '\t' || s[0] == '\n')
 		s.erase(0, 1);
 }
 
@@ -104,6 +104,158 @@ void LoginFTP(SOCKET socket_descriptor, HOSTENT * pHostEnt)
 	}
 	printf("%s", buf);
 }
+
+bool passiveMode(SOCKET soc, SOCKET &dsoc) {
+	char buf[BUFSIZ + 1];
+	int tmpres;
+	unsigned int port = 0; // Port server opened for client connect into
+	string addr = ""; // Address of server ftp
+	sockaddr_in sin_data;
+	hostent *pHost;
+
+	// Config cmd to sen PASV to server
+	memset(buf, 0, sizeof buf);
+	sprintf(buf, "PASV\r\n");
+	// Send request to connect by passive mode
+	tmpres = send(soc, buf, strlen(buf), 0);
+	//Sleep(500);
+	if (tmpres > -1) 
+	{
+		// Receive information about address and port server sent down
+		memset(buf, 0, sizeof buf);
+		tmpres = recv(soc, buf, BUFSIZ, 0);
+
+		//kiem tra co phai ma loi 227
+		char temp_p[8];
+		strncpy(temp_p, buf, 3);
+		temp_p[3] = '\0';
+		// get address and port of server
+		if (strcmp("227", temp_p) > -1)
+		{
+			//tien hanh boc tach de lay port
+			string receive(buf);
+			int pos1 = receive.find('(');
+			int pos2 = receive.find(')');
+			string c1 = receive.substr(pos1 + 1, pos2 - pos1 - 1);
+
+			for (int i = 1; i <= 4; i++) {
+				pos1 = c1.find(',');
+				if (addr == "") {
+					addr += c1.substr(0, pos1);
+				}
+				else {
+					addr += "." + c1.substr(0, pos1);
+				}
+				c1 = c1.substr(pos1 + 1, c1.length() - pos1 - 1);
+			}
+
+			pos1 = c1.find(',');
+			int h1 = atoi(c1.substr(0, pos1).c_str());
+			int h2 = atoi(c1.substr(pos1 + 1, c1.length() - pos1 - 1).c_str());
+			port = h1 * 256 + h2;
+
+			// Config sin_data
+			memset(&sin_data, 0, sizeof(sin_data));
+			sin_data.sin_family = AF_INET;
+			sin_data.sin_port = htons(port);
+
+			if (pHost = gethostbyname(addr.c_str())) {
+				memcpy(&sin_data.sin_addr, pHost->h_addr_list[0], pHost->h_length);
+			}
+
+			// Open socket
+			dsoc = socket(PF_INET, SOCK_STREAM, 0);
+			if (dsoc == INVALID_SOCKET)
+				errexit("Socket creation failed: %d\n", WSAGetLastError());
+
+			// connect to server
+			int retcode;
+			retcode = connect(dsoc, (struct sockaddr *) &sin_data, sizeof(sin_data));
+			if (retcode == SOCKET_ERROR)
+				errexit("Connect failed: %d\n", WSAGetLastError());
+			// Send cmd
+			//send(soc, cmd, strlen(cmd), 0);
+		}
+		else 
+		{
+			return false;
+		}
+	}
+	else 
+	{
+		return false;
+	}
+	return true;
+}
+
+//Hàm passiveMode:
+/*	+  Tham số đầu vào: socket control, socket data, cmd cần gửi lên server
+	+ Trả về: bool để biết được thiết lập kết nối thành công hay chưa
+*/
+bool activeMode(SOCKET soc, SOCKET &dsoc)
+{
+	char buf[BUFSIZ + 1];
+	int tmpres;
+	static int port_add = 1;
+	sockaddr_in dataAddr;
+	IP ip;
+	int len = sizeof(dataAddr),p, p1, p2;
+
+	// Open socket dsoc
+	dsoc = socket(PF_INET, SOCK_STREAM, 0);
+	if (dsoc == INVALID_SOCKET)
+		errexit("Socket creation failed: %d\n", WSAGetLastError());
+	// Config dataAddr
+	memset(&dataAddr, 0, sizeof dataAddr);
+	dataAddr.sin_family = AF_INET;
+
+	if (getsockname(soc, (sockaddr*)&dataAddr, &len) > -1) {
+		dataAddr.sin_port = htons(ntohs(dataAddr.sin_port) + port_add);
+		port_add++;
+	}
+	else {
+		return false;
+	}
+
+	if (bind(dsoc, (sockaddr*)&dataAddr, len) > -1) 
+	{
+		if (listen(dsoc, SOMAXCONN) > -1) {
+			// Prepare port for client to listen from server
+			/*unsigned int a, b, c, d, p1, p2, p;
+			a = dataAddr.sin_addr.S_un.S_un_b.s_b1;
+			b = dataAddr.sin_addr.S_un.S_un_b.s_b2;
+			c = dataAddr.sin_addr.S_un.S_un_b.s_b3;
+			d = dataAddr.sin_addr.S_un.S_un_b.s_b4;*/
+			ip.getIP(dataAddr);
+			p = ntohs(dataAddr.sin_port);
+			p1 = p / 256;
+			p2 = p % 256;
+
+			// Send port to server
+			sprintf(buf, "PORT %d,%d,%d,%d,%d,%d\r\n", ip.a, ip.b, ip.c, ip.d, p1, p2);
+			tmpres = send(soc, buf, strlen(buf), 0);
+			memset(buf, 0, sizeof buf);
+			recv(soc, buf, BUFSIZ, 0);
+			printf("%s", buf);
+
+			// Send cmd to server
+			//send(soc, cmd, strlen(cmd), 0);
+			// Accept connection
+			len = sizeof(dataAddr);
+			dsoc = accept(dsoc, (sockaddr*)&dataAddr, &len);
+		}
+		else 
+		{
+			return false;
+		}
+	}
+	else 
+	{
+		return false;
+	}
+	return true;
+}
+
 //hàm ls
 void ls(SOCKET soc, struct sockaddr_in & data, string cmd)
 {
@@ -238,14 +390,38 @@ void dir(SOCKET soc, struct sockaddr_in &data,string cmd)
 	printf("%s", buf);
 }
 
-void lcd(string cmd)
-{	
-	TCHAR buf[1024];
-	DWORD ret;
-	
-	ret = GetCurrentDirectory(sizeof buf, buf);
-	_tprintf(TEXT("Set current directory to %s\n"), buf);
+void lcd(char direct[]) {
+	static wchar_t rootPath[BUFSIZ] = L""; // Lưu lại path của thư mục gốc ban đầu
+	wchar_t info[BUFSIZ];
+	int check = 0;
 
+	// Establish mode for print unicode text
+	_setmode(_fileno(stdin), _O_U16TEXT);
+	_setmode(_fileno(stdout), _O_U16TEXT);
+
+	// Kiểm tra ban đầu nếu path gốc chưa lưu lại thì lưu lại
+	if (wcscmp(rootPath, L"") == 0) {
+		wmemset(rootPath, 0, sizeof rootPath);
+		_wgetcwd(rootPath, sizeof(rootPath));
+	}
+
+	if (strcmp(direct, "lcd") == 0) {
+		check = SetCurrentDirectoryW(rootPath);
+	}
+	else {
+		//check = SetCurrentDirectory(direct + 4);
+	}
+
+	if (check) {
+		GetCurrentDirectoryW(BUFSIZ, info);
+		wcout << "Local directory now " << info << "." << endl;
+	}
+	else {
+		wcout << "File not found" << endl;
+	}
+	// Establish mode for print ascii text
+	_setmode(_fileno(stdin), _O_TEXT);
+	_setmode(_fileno(stdout), _O_TEXT);
 }
 //Hàm cd
 void cd(SOCKET soc, string cmd)
@@ -415,7 +591,7 @@ void mget(SOCKET soc, struct sockaddr_in &data, string cmd)
 		rewind(stdin);
 		getline(cin, cmd);
 	}
-
+	temp = "";
 	while (cmd != "")
 	{
 		chuanHoa(cmd);
@@ -448,12 +624,12 @@ void mget(SOCKET soc, struct sockaddr_in &data, string cmd)
 		memset(buf, 0, sizeof buf);
 		recv(soc, buf, sizeof buf, 0);
 		//printf("%s", buf);//	std::cout << buf;
-
+		temp = "";
 		sscanf(buf, "%d", &k);
 		if (k != 550)
 		{
 			dataSocket = accept(dataSocket, NULL, NULL);
-			temp = "";
+			
 			while (1)
 			{
 				memset(buf, 0, sizeof buf);
@@ -475,11 +651,11 @@ void mget(SOCKET soc, struct sockaddr_in &data, string cmd)
 
 		while (temp != "") {
 			memset(buf, 0, sizeof buf);
-			sscanf(temp.c_str(), "%s", buf);
+			sscanf(temp.c_str(), "%[^\r]", buf);
 			printf("mget %s?", buf);
 			c = cin.get();
 			if (c == 'y' || c == 'Y' || c == '\n')
-				get(soc, data, cmd);
+				get(soc, data, buf);
 			rewind(stdin);
 			temp.erase(0, strlen(buf) + 2); //xóa thêm 2 kí tự \r\n
 			chuanHoa(temp);
@@ -549,7 +725,7 @@ void put(SOCKET soc, struct sockaddr_in &data, string cmd)
 		Bytes = send(soc, buf, strlen(buf), 0);
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
-		cout << "\n" << buf;
+		cout << buf;
 
 		memset(buf, 0, sizeof buf);
 		sprintf(buf, "STOR %s\r\n", rmfile);
@@ -603,7 +779,9 @@ void put(SOCKET soc, struct sockaddr_in &data, string cmd)
 
 void mput(SOCKET soc, struct sockaddr_in &data, string cmd)
 {
-	char buf[1024];
+	char buf[1024], flnm[1024], c;
+	WIN32_FIND_DATA FindFileData;
+	HANDLE hFind;
 	//xóa mput và chuẩn hóa chuỗi cmd
 	cmd.erase(0, 4);
 	chuanHoa(cmd);
@@ -615,7 +793,7 @@ void mput(SOCKET soc, struct sockaddr_in &data, string cmd)
 		getline(cin, cmd);
 	}
 
-	while (1)
+	/*while (1)
 	{
 		memset(buf, 0, sizeof buf);
 		sscanf(cmd.c_str(), "%s", buf);
@@ -632,6 +810,64 @@ void mput(SOCKET soc, struct sockaddr_in &data, string cmd)
 		chuanHoa(cmd);
 		if (cmd == "")
 			break;
+	}*/
+
+	while (cmd != "")
+	{
+		chuanHoa(cmd);
+		memset(flnm, 0, sizeof flnm);
+		sscanf(cmd.c_str(), "%s", flnm);//đọc file name của tệp cần lấy từ cmd
+
+		TCHAR patter[MAX_PATH];
+
+		memset(patter, 0x00, MAX_PATH);
+		//_stprintf(patter, TEXT("*.txt"));
+		mbstowcs(patter, flnm, MAX_PATH);
+		hFind = FindFirstFile(patter, &FindFileData);
+		if (hFind == INVALID_HANDLE_VALUE)
+		{
+			printf("FindFirstFile failed (%d)\n", GetLastError());
+			return;
+		}
+		else
+		{
+			do
+			{
+				//ignore current and parent directories
+				if (_tcscmp(FindFileData.cFileName, TEXT(".")) == 0 || _tcscmp(FindFileData.cFileName, TEXT("..")) == 0)
+					continue;
+
+				if (FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+				{
+					//ignore directories
+				}
+				else
+				{
+					//list the Files
+					//_tprintf(TEXT("%s "), FindFileData.cFileName);
+
+					memset(buf, 0, sizeof buf);
+					wcstombs(buf, FindFileData.cFileName, sizeof buf);
+					/*f.open(temp, ios::in);
+					if (f.is_open())
+					{
+						memset(buf, 0, sizeof buf);
+						f >> buf;
+						cout << buf << endl;
+						f.close();
+					}
+					else
+						cout << "Can't open file\n";*/
+					printf("mput %s?", buf);
+					c = cin.get();
+					if (c == 'y' || c == 'Y' || c == '\n')
+						put(soc, data, buf);
+					rewind(stdin);
+				}
+			} while (FindNextFile(hFind, &FindFileData));
+			FindClose(hFind);
+		}
+		cmd.erase(0, strlen(flnm));
 	}
 }
 
@@ -741,7 +977,8 @@ void mDelete(SOCKET soc, struct sockaddr_in & data, string cmd)
 
 		while (temp != "") {
 			memset(buf, 0, sizeof buf);
-			sscanf(temp.c_str(), "%s", buf);
+			sscanf(temp.c_str(), "%[^\r]", buf);
+
 			printf("mdelete %s?", buf);
 			c = cin.get();
 			if (c == 'y' || c == 'Y' || c == '\n')

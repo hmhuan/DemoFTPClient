@@ -290,7 +290,7 @@ int main(int argc, char* argv[])
 		}
 		else if (temp.substr(0, 3) == "LCD")
 		{
-			lcd(cmd);
+			//lcd(cmd);
 		}
 		else if (temp.substr(0, 4) == "HELP")
 		{

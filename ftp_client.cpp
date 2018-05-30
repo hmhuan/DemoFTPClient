@@ -13,17 +13,12 @@ int main(int argc, char* argv[])
 	int retcode;
 	bool pasvMode = false;
 
+	SetConsoleOutputCP(65001);
+
 	wVersionRequested = MAKEWORD(2, 2);
 	retcode = WSAStartup(wVersionRequested, &wsaData); 
 	if (retcode != 0)
 		errexit("Startup failed: %d\n", retcode);
-
-	/*printf("Return Code: %i\n", retcode);
-	printf("Version Used: %i.%i\n", LOBYTE(wsaData.wVersion), HIBYTE(wsaData.wVersion));
-	printf("Version Supported:  %i.%i\n", LOBYTE(wsaData.wHighVersion), HIBYTE(wsaData.wHighVersion));
-	printf("Implementation: %s\n", wsaData.szDescription);
-	printf("System Status: %s\n", wsaData.szSystemStatus);
-	printf("\n");*/
 	
 	if (LOBYTE(wsaData.wVersion) != LOBYTE(wVersionRequested) || HIBYTE(wsaData.wVersion) != HIBYTE(wVersionRequested))
 	{
@@ -46,19 +41,12 @@ int main(int argc, char* argv[])
 	if (pHostEnt = gethostbyname(ServerName)) 
 	{
 		memcpy(&sin.sin_addr, pHostEnt->h_addr_list[0], pHostEnt->h_length);
-		/*printf("Address Length: %d\n", pHostEnt->h_length);
-		printf("Host Address: %s\n", inet_ntoa(sin.sin_addr));
-		printf("Host Name: %s\n", pHostEnt->h_name);
-		printf("\n");*/
 	}
 	else errexit("Can't get %s\" host entry: %d\n", ServerName, WSAGetLastError());
 
 	retcode = connect(socket_descriptor, (struct sockaddr *) &sin, sizeof(sin));
 	if (retcode == SOCKET_ERROR)
 		errexit("Connect failed: %d\n", WSAGetLastError());
-
-
-
 
 	char buf[BUFSIZ];
 	int tmpres, status;
@@ -88,14 +76,16 @@ int main(int argc, char* argv[])
 	//set timeout cho recv()
 	int timeout = 50; //in milliseconds. this is 30 seconds
 
-	string cmd,temp;
+	wstring cmd1;
+	string temp, cmd;
+
 	do {	
 		timeout = 50;
 		setsockopt(socket_descriptor, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
-		cout << "ftp>";
+		printf("ftp>");
 		rewind(stdin);
 		getline(cin, cmd);
-
+		//printf("%s\n", cmd.c_str());
 		//check 421 timed out connection
 		memset(buf, 0, sizeof(buf));
 		recv(socket_descriptor, buf, sizeof buf, 0);

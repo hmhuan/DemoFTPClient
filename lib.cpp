@@ -143,7 +143,6 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 	sprintf(buf, "PASV\r\n");
 	// Send request to connect by passive mode
 	tmpres = send(soc, buf, strlen(buf), 0);
-	//Sleep(500);
 	if (tmpres > -1) 
 	{
 		// Receive information about address and port server sent down
@@ -151,9 +150,6 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 		recv(soc, buf, BUFSIZ, 0);
 
 		//kiem tra co phai ma loi 227
-		/*char temp_p[8];
-		strncpy(temp_p, buf, 3);
-		temp_p[3] = '\0';*/
 		sscanf(buf, "%d", &tmpres);
 		// get address and port of server
 		if (tmpres == 227)
@@ -202,13 +198,6 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 			
 			if (retcode == SOCKET_ERROR)
 				errexit("Connect failed: %d\n", WSAGetLastError());
-			// Send cmd
-			/*send(soc, "NLST \r\n", 7, 0);
-			int len = sizeof(sin_data);
-			dsoc = accept(dsoc, (sockaddr *)&sin_data, &len);
-			memset(buf, 0, sizeof buf);
-			recv(dsoc, buf, sizeof buf, 0);
-			cout << buf;*/
 		}
 		else 
 		{
@@ -222,7 +211,7 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 	return true;
 }
 
-bool activeMode(SOCKET soc, SOCKET &dsoc)
+bool activeMode(SOCKET soc, SOCKET &dsoc, int stat)
 {
 	char buf[BUFSIZ + 1];
 	int tmpres;
@@ -263,13 +252,8 @@ bool activeMode(SOCKET soc, SOCKET &dsoc)
 			tmpres = send(soc, buf, strlen(buf), 0);
 			memset(buf, 0, sizeof buf);
 			recv(soc, buf, BUFSIZ, 0);
-			printf("%s", buf);
-
-			// Send cmd to server
-			//send(soc, cmd, strlen(cmd), 0);
-			// Accept connection
-			//len = sizeof(dataAddr);
-			//dsoc = accept(dsoc, (sockaddr*)&dataAddr, &len);
+			if (stat == 0)
+				printf("%s", buf);
 		}
 		else 
 		{
@@ -289,7 +273,7 @@ void ls(SOCKET soc, string cmd, bool modePasv)
 	int Bytes;
 	bool check;
 	SOCKET dataSocket;
-
+	
 	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
 
@@ -299,7 +283,7 @@ void ls(SOCKET soc, string cmd, bool modePasv)
 	if (modePasv)
 		check = passiveMode(soc, dataSocket);
 	else
-		check = activeMode(soc, dataSocket);
+		check = activeMode(soc, dataSocket, 0);
 	//lenh NLST
 	memset(buf, 0, sizeof(buf));
 	sprintf(buf, "NLST %s\r\n", cmd.c_str());
@@ -309,28 +293,21 @@ void ls(SOCKET soc, string cmd, bool modePasv)
 	printf("%s", buf);
 	sscanf(buf, "%d", &Bytes);
 	
-	if (check && Bytes != 550)
+	if (check && Bytes != 550 && Bytes != 501)
 	{
 		if (!modePasv)
 			dataSocket = accept(dataSocket, NULL, NULL);
+		
 		while (1)
 		{
 			memset(buf, 0, sizeof buf);
 			Bytes = recv(dataSocket, buf, 1023, 0);
+			if (Bytes == 0)
+				break;
 			printf("%s", buf);
-			//Bytes = recv(dataSocket, (char *)bufR,  * sizeof(wchar_t), 0);
-			/*if (Bytes == 0)
-				break;*/
-			
-			//Establish mode for print unicode text
-			//_setmode(_fileno(stdin), _O_U16TEXT);
-			//_setmode(_fileno(stdout), _O_U16TEXT);
-			//wcout.write(bufR, Bytes);
 			if (Bytes != 1023)
 				break;
 		}
-		//_setmode(_fileno(stdin), _O_TEXT);
-		//_setmode(_fileno(stdout), _O_TEXT);
 		//connSocket trả về cmd phản hồi 
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
@@ -354,7 +331,7 @@ void dir(SOCKET soc, string cmd, bool modePasv)
 	if (modePasv)
 		check = passiveMode(soc, dataSocket);
 	else
-		check = activeMode(soc, dataSocket);
+		check = activeMode(soc, dataSocket, 0);
 	//lenh NLST
 	memset(buf, 0, sizeof(buf));
 	sprintf(buf, "LIST %s\r\n", cmd.c_str());
@@ -499,26 +476,24 @@ void get(SOCKET soc, string cmd, bool modePasv)
 			lc = rm[i] + lc;
 		}
 	}
+	bool check;
+	if (modePasv)
+		check = passiveMode(soc, dataSocket);
+	else
+		check = activeMode(soc, dataSocket, 0);
 
-	
-	fOut.open(lc, ios::out | ios::binary);
-	if (fOut.is_open())
+	memset(buf, 0, sizeof buf);
+	sprintf(buf, "RETR %s\r\n", rm.c_str());
+	Bytes = send(soc, buf, strlen(buf), 0);
+
+	memset(buf, 0, sizeof buf);
+	Bytes = recv(soc, buf, sizeof buf, 0);
+	printf("%s", buf);
+	sscanf(buf, "%d", &Bytes);
+	if (check && Bytes != 550 && Bytes != 501)
 	{
-		bool check;
-		if (modePasv)
-			check = passiveMode(soc, dataSocket);
-		else
-			check = activeMode(soc, dataSocket);
-
-		memset(buf, 0, sizeof buf);
-		sprintf(buf, "RETR %s\r\n", rm.c_str());
-		Bytes = send(soc, buf, strlen(buf), 0);
-
-		memset(buf, 0, sizeof buf);
-		Bytes = recv(soc, buf, sizeof buf, 0);
-		printf("%s", buf);
-		sscanf(buf, "%d", &Bytes);
-		if (check && Bytes != 550 && Bytes != 501)
+		fOut.open(lc, ios::out | ios::binary);
+		if (fOut.is_open())
 		{
 			if (!modePasv)
 				dataSocket = accept(dataSocket, NULL, NULL);
@@ -530,19 +505,18 @@ void get(SOCKET soc, string cmd, bool modePasv)
 				if (Bytes != sizeof buf)
 					break;
 			}
+			fOut.close();
 		}
-		fOut.close();
-		closesocket(dataSocket);
+		else
+		{
+			cout << "> R: No such process\n";
+		}
 		//connSocket trả về thông báo gửi thành công/ thất bại 
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
 		printf("%s", buf);
-		
 	}
-	else
-	{
-		cout << "> R: No such process\n";
-	}
+	closesocket(dataSocket);
 }
 //Hàm tải về nhiều file
 void mget(SOCKET soc, string cmd, bool modePasv)
@@ -555,9 +529,7 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 
 	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
-	//xóa mget và chuẩn hóa chuỗi cmd
-	cmd.erase(0, 4);
-	chuanHoa(cmd);
+	
 	//nếu cmd rỗng tiến hành đọc tên file
 	if (cmd == "")
 	{
@@ -569,30 +541,11 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 	while (cmd != "")
 	{
 		chuanHoa(cmd);
-		filename = "";
-		memset(buf, 0, sizeof buf);
-		sscanf(cmd.c_str(), "%s", buf);//đọc file name của tệp cần lấy từ cmd
-		cmd.erase(0, strlen(buf));
-		filename = buf;
-		if (buf[0] == '\"')
-		{
-			filename.erase(0, 1);
-			while (filename[filename.length() - 1] != '\"' && cmd != "") 
-			{
-				chuanHoa(cmd);
-				memset(buf, 0, sizeof buf);
-				sscanf(cmd.c_str(), "%s", buf);
-				filename += ' ';
-				filename += buf;
-				cmd.erase(0, strlen(buf));
-			}
-			filename.erase(filename.length() - 1);
-		}
-
+		filename = getFileName(cmd);
 		if (modePasv)
 			check = passiveMode(soc, dataSocket);
 		else
-			check = activeMode(soc, dataSocket);
+			check = activeMode(soc, dataSocket, 1);
 
 		//lenh NLST
 		memset(buf, 0, sizeof(buf));
@@ -600,10 +553,10 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 		send(soc, buf, strlen(buf), 0);
 		memset(buf, 0, sizeof buf);
 		recv(soc, buf, sizeof buf, 0);
-		//printf("%s", buf);//	std::cout << buf;
-		temp = "";
 		sscanf(buf, "%d", &k);
-		if (check && k != 550)
+		temp = "";
+		
+		if (check && k != 550 && k != 501)
 		{
 			if (!modePasv)
 				dataSocket = accept(dataSocket, NULL, NULL);
@@ -616,16 +569,16 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 				if (Bytes != 1024)
 					break;
 			}
-
 			//connSocket trả về cmd phản hồi 
 			memset(buf, 0, sizeof buf);
-			recv(soc, buf, sizeof buf, 0);
-			//printf("%s", buf);
-			closesocket(dataSocket);
+			recv(soc, buf, sizeof buf, 0);	
 		}
 		else
-			printf("#[%s]: %s", filename, buf);
-
+		{
+			cout <<"["<< filename << "]: ";
+			printf("%s", buf);
+		}
+		closesocket(dataSocket);
 		while (temp != "") 
 		{
 			memset(buf, 0, sizeof buf);
@@ -641,7 +594,6 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 			temp.erase(0, strlen(buf) + 2); //xóa thêm 2 kí tự \r\n
 			chuanHoa(temp);
 		}
-		//cmd.erase(0, strlen(flnm));
 	}
 }
 
@@ -679,14 +631,14 @@ void put(SOCKET soc, string cmd, bool modePasv)
 		}
 	}
 
-	fIn.open(lc, ios::in | ios::binary);
+	fIn.open(lc.c_str(), ios::in | ios::binary);
 	if (fIn.is_open())
 	{
 		bool check;
 		if (modePasv)
 			check = passiveMode(soc, dataSocket);
 		else
-			check = activeMode(soc, dataSocket);
+			check = activeMode(soc, dataSocket, 0);
 
 		memset(buf, 0, sizeof buf);
 		sprintf(buf, "STOR %s\r\n", rm.c_str());
@@ -726,14 +678,15 @@ void put(SOCKET soc, string cmd, bool modePasv)
 	}
 	else
 	{
-		cout << lc << " File not found\n";
+		printf("%s:", lc.c_str());
+		cout << " File not found\n";
 	}
 }
 
 void mput(SOCKET soc, string cmd, bool modePasv)
 {
 	char buf[1024], c;
-	string filename;
+	string filename,temp;
 	WIN32_FIND_DATA FindFileData;
 	HANDLE hFind;
 
@@ -759,7 +712,7 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 		if (hFind == INVALID_HANDLE_VALUE)
 		{
 			printf("FindFirstFile failed (%d)\n", GetLastError());
-			printf("%s: File not found\n", filename);
+			printf("[%s]: File not found\n", filename.c_str());
 		}
 		else
 		{
@@ -775,7 +728,7 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 				{
 					memset(buf, 0, sizeof buf);
 					wcstombs(buf, FindFileData.cFileName, sizeof buf);
-					string temp = "";
+					temp = "";
 		
 					if (t1 != -1)
 						temp = filename.substr(0, t1 + 1);
@@ -787,6 +740,7 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 					c = cin.get();
 					if (c == 'y' || c == 'Y' || c == '\n')
 						put(soc, temp, modePasv);
+					rewind(stdout);
 					rewind(stdin);
 				}
 			} while (FindNextFile(hFind, &FindFileData));
@@ -846,14 +800,14 @@ void mDelete(SOCKET soc, string cmd, bool modePasv)
 		if (modePasv)
 			check = passiveMode(soc, dataSocket);
 		else
-			check = activeMode(soc, dataSocket);
+			check = activeMode(soc, dataSocket, 1);
 		//lenh NLST
 		memset(buf, 0, sizeof buf);
 		sprintf(buf, "NLST %s\r\n", filename.c_str());
 		send(soc, buf, strlen(buf), 0);
 		memset(buf, 0, sizeof buf);
 		recv(soc, buf, sizeof buf, 0);
-		printf("%s", buf);//	std::cout << buf;
+		printf("%s", buf);
 
 		sscanf(buf, "%d", &k);
 		if (check && k != 550 && k != 501)
@@ -872,10 +826,9 @@ void mDelete(SOCKET soc, string cmd, bool modePasv)
 			//connSocket trả về cmd phản hồi 
 			memset(buf, 0, sizeof buf);
 			Bytes = recv(soc, buf, sizeof buf, 0);
-			//printf("%s", buf);
 		}
 		closesocket(dataSocket);
-		//filename
+
 		while (temp != "") {
 			memset(buf, 0, sizeof buf);
 			sscanf(temp.c_str(), "%[^\r]", buf);
@@ -919,15 +872,16 @@ void rmdir(SOCKET soc, string cmd)
 	int Bytes;
 
 	cmd = cmd.erase(0, 5);
-	chuanHoa(cmd);
-	
+
 	if (cmd == "")
 	{
 		std::cout << "Directory name: ";
 		getline(cin, cmd);
-	}
+	}		
+
 	memset(buf, 0, sizeof buf);
 	sprintf(buf, "RMD %s\r\n", cmd.c_str());
+
 	Bytes = send(soc, buf, strlen(buf), 0);
 	//connSocket trả về cmd 
 	memset(buf, 0, sizeof buf);

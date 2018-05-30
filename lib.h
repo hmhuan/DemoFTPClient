@@ -5,12 +5,14 @@
 #include <iostream>
 #include <WinSock2.h>
 #include <string>
+#include <cstring>
 #include <fstream>
 #include <tchar.h>
 #include <fcntl.h>
 #include <io.h>
 
 #pragma comment(lib, "Ws2_32.lib")
+#pragma execution_character_set( "UTF-8" )
 
 using namespace std;
 
@@ -72,7 +74,7 @@ void pwd(SOCKET soc);
 
 //14. Chuyển sang trạng thái passive
 bool passiveMode(SOCKET soc, SOCKET &dsoc);
-bool activeMode(SOCKET soc, SOCKET &dsoc);
+bool activeMode(SOCKET soc, SOCKET &dsoc, int stat);
 
 //15. Thoát khải Server
 void quit(SOCKET soc);

@@ -82,6 +82,10 @@ int main(int argc, char* argv[])
 				connectSocket(socket_descriptor, pHostEnt, (char*)cmd.c_str());
 				logined = LoginFTP(socket_descriptor, pHostEnt);
 			}
+			else if (temp.substr(0, 3) == "LCD")
+			{
+				lcd((char *)cmd.c_str());
+			}
 			else if (temp.substr(0, 4) == "HELP")
 			{
 				cout << "Commands may be abbreviated.  Commands are:\n\n";

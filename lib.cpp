@@ -78,13 +78,72 @@ string getFileName(string &cmd)
 	return filename;
 }
 
-void LoginFTP(SOCKET socket_descriptor, HOSTENT * pHostEnt)
+void connectSocket(SOCKET &soc, HOSTENT *&pHostEnt, char* ServerName) {
+	struct sockaddr_in sin;
+
+	soc= socket(PF_INET, SOCK_STREAM, 0);
+	if (soc == INVALID_SOCKET)
+		errexit("Socket creation failed: %d\n", WSAGetLastError());
+
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(21);
+	if (pHostEnt = gethostbyname(ServerName))
+	{
+		memcpy(&sin.sin_addr, pHostEnt->h_addr_list[0], pHostEnt->h_length);
+	}
+	else {
+		printf("Can not connect to servername: %s\n",ServerName);
+		soc = -1;
+		return;
+	}
+
+	int retcode = connect(soc, (struct sockaddr *) &sin, sizeof(sin));
+	if (retcode == SOCKET_ERROR) {
+		printf("Connect failed: %d\n", WSAGetLastError());
+		soc = -1;
+		return;
+	}
+
+	char buf[BUFSIZ];
+	int tmpres, status;
+	char * str;
+	int codeftp;
+
+	printf("Connection established, waiting for welcome message...\n");
+	//How to know the end of welcome message:http://stackoverflow.com/questions/13082538/how-to-know-the-end-of-ftp-welcome-message
+	memset(buf, 0, sizeof buf);
+	while ((tmpres = recv(soc, buf, BUFSIZ, 0)) > 0)
+	{
+		sscanf(buf, "%d", &codeftp);
+		printf("%s", buf);
+		if (codeftp != 220) //120, 240, 421: something wrong
+		{
+			replylogcode(codeftp);
+			//exit(1);
+			soc = -1;
+			return;
+		}
+		str = strstr(buf, "220");//Why ???
+		if (str != NULL) {
+			break;
+		}
+		memset(buf, 0, tmpres);
+	}
+}
+
+void disconnectSocket(SOCKET &soc) {
+	int retcode = closesocket(soc);
+	if (retcode == SOCKET_ERROR)
+		errexit("Close socket failed: %d\n", WSAGetLastError());
+}
+
+bool LoginFTP(SOCKET &socket_descriptor, HOSTENT * &pHostEnt)
 {
 	int codeftp = 421;
 	char buf[BUFSIZ];
 	//Send Username
 	char info[50];
-
 	//thiet lap man hinh nhap/xuat console cho password
 	HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
 	DWORD mode = 0;
@@ -103,7 +162,8 @@ void LoginFTP(SOCKET socket_descriptor, HOSTENT * pHostEnt)
 	if (codeftp != 331)
 	{
 		replylogcode(codeftp);
-		exit(1);
+		//exit(1);
+		return false;
 	}
 	printf("%s", buf);
 
@@ -125,11 +185,14 @@ void LoginFTP(SOCKET socket_descriptor, HOSTENT * pHostEnt)
 	if (codeftp != 230)
 	{
 		replylogcode(codeftp);
-		exit(1);
+		return false;
+		//exit(1);
 	}
 	printf("%s", buf);
-}
 
+	return true;
+}
+//Hàm chuyển Passive Mode
 bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 	char buf[BUFSIZ];
 	int tmpres;
@@ -143,17 +206,13 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 	sprintf(buf, "PASV\r\n");
 	// Send request to connect by passive mode
 	tmpres = send(soc, buf, strlen(buf), 0);
-	//Sleep(500);
-	if (tmpres > -1) 
+	if (tmpres > -1)
 	{
 		// Receive information about address and port server sent down
 		memset(buf, 0, sizeof buf);
 		recv(soc, buf, BUFSIZ, 0);
 
 		//kiem tra co phai ma loi 227
-		/*char temp_p[8];
-		strncpy(temp_p, buf, 3);
-		temp_p[3] = '\0';*/
 		sscanf(buf, "%d", &tmpres);
 		// get address and port of server
 		if (tmpres == 227)
@@ -164,7 +223,7 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 			int pos2 = receive.find(')');
 			string c1 = receive.substr(pos1 + 1, pos2 - pos1 - 1);
 
-			for (int i = 1; i <= 4; i++) 
+			for (int i = 1; i <= 4; i++)
 			{
 				pos1 = c1.find(',');
 				if (addr == "") {
@@ -197,39 +256,32 @@ bool passiveMode(SOCKET soc, SOCKET &dsoc) {
 
 			// connect to server
 			int retcode;
-			
+
 			retcode = connect(dsoc, (struct sockaddr *) &sin_data, sizeof(sin_data));
-			
+
 			if (retcode == SOCKET_ERROR)
 				errexit("Connect failed: %d\n", WSAGetLastError());
-			// Send cmd
-			/*send(soc, "NLST \r\n", 7, 0);
-			int len = sizeof(sin_data);
-			dsoc = accept(dsoc, (sockaddr *)&sin_data, &len);
-			memset(buf, 0, sizeof buf);
-			recv(dsoc, buf, sizeof buf, 0);
-			cout << buf;*/
 		}
-		else 
+		else
 		{
 			return false;
 		}
 	}
-	else 
+	else
 	{
 		return false;
 	}
 	return true;
 }
-
-bool activeMode(SOCKET soc, SOCKET &dsoc)
+//Hàm chuyển Active Mode
+bool activeMode(SOCKET soc, SOCKET &dsoc, int stat)
 {
 	char buf[BUFSIZ + 1];
 	int tmpres;
 	static int port_add = 1;
 	sockaddr_in dataAddr;
-	
-	int len = sizeof(dataAddr),p;
+
+	int len = sizeof(dataAddr), p;
 
 	// Open socket dsoc
 	dsoc = socket(PF_INET, SOCK_STREAM, 0);
@@ -248,7 +300,7 @@ bool activeMode(SOCKET soc, SOCKET &dsoc)
 		return false;
 	}
 	dataAddr.sin_port = htons(dataAddr.sin_port);
-	if (bind(dsoc, (sockaddr*)&dataAddr, len) > -1) 
+	if (bind(dsoc, (sockaddr*)&dataAddr, len) > -1)
 	{
 		if (listen(dsoc, SOMAXCONN) > -1) {
 			// Prepare port for client to listen from server
@@ -263,33 +315,28 @@ bool activeMode(SOCKET soc, SOCKET &dsoc)
 			tmpres = send(soc, buf, strlen(buf), 0);
 			memset(buf, 0, sizeof buf);
 			recv(soc, buf, BUFSIZ, 0);
-			printf("%s", buf);
-
-			// Send cmd to server
-			//send(soc, cmd, strlen(cmd), 0);
-			// Accept connection
-			//len = sizeof(dataAddr);
-			//dsoc = accept(dsoc, (sockaddr*)&dataAddr, &len);
+			if (stat == 0)
+				printf("%s", buf);
 		}
-		else 
+		else
 		{
 			return false;
 		}
 	}
-	else 
+	else
 	{
 		return false;
 	}
 	return true;
 }
-//hàm ls
+//Hàm LS
 void ls(SOCKET soc, string cmd, bool modePasv)
 {
 	char buf[1024];
-	int Bytes;
+	int Bytes, byteSum = 3;
 	bool check;
 	SOCKET dataSocket;
-
+	clock_t clockStart = 0, clockEnd = 0;
 	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
 
@@ -299,7 +346,7 @@ void ls(SOCKET soc, string cmd, bool modePasv)
 	if (modePasv)
 		check = passiveMode(soc, dataSocket);
 	else
-		check = activeMode(soc, dataSocket);
+		check = activeMode(soc, dataSocket, 0);
 	//lenh NLST
 	memset(buf, 0, sizeof(buf));
 	sprintf(buf, "NLST %s\r\n", cmd.c_str());
@@ -308,53 +355,52 @@ void ls(SOCKET soc, string cmd, bool modePasv)
 	Bytes = recv(soc, buf, sizeof buf, 0);
 	printf("%s", buf);
 	sscanf(buf, "%d", &Bytes);
-	
-	if (check && Bytes != 550)
+
+	if (check && Bytes != 550 && Bytes != 501)
 	{
 		if (!modePasv)
 			dataSocket = accept(dataSocket, NULL, NULL);
+		clockStart = clock();
 		while (1)
 		{
 			memset(buf, 0, sizeof buf);
 			Bytes = recv(dataSocket, buf, 1023, 0);
+			byteSum += Bytes;
+			if (Bytes == 0)
+				break;
 			printf("%s", buf);
-			//Bytes = recv(dataSocket, (char *)bufR,  * sizeof(wchar_t), 0);
-			/*if (Bytes == 0)
-				break;*/
-			
-			//Establish mode for print unicode text
-			//_setmode(_fileno(stdin), _O_U16TEXT);
-			//_setmode(_fileno(stdout), _O_U16TEXT);
-			//wcout.write(bufR, Bytes);
 			if (Bytes != 1023)
 				break;
 		}
-		//_setmode(_fileno(stdin), _O_TEXT);
-		//_setmode(_fileno(stdout), _O_TEXT);
+		clockEnd = clock() + 1;
+		cout << clockStart << " " << clockEnd << endl;
 		//connSocket trả về cmd phản hồi 
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
 		printf("%s", buf);
+		double times = (clockEnd - clockStart) * 1.0 / CLOCKS_PER_SEC;
+		printf("%lu bytes received in %0.3lfseconds %0.3lfKbytes/sec.\n", byteSum, times, (byteSum*1.0 / 1024) / times);
 	}
 	closesocket(dataSocket);
 }
-//hàm dir
+//Hàm dir
 void dir(SOCKET soc, string cmd, bool modePasv)
 {
 	char buf[1024];
-	int Bytes;
+	int Bytes, byteSum = 3;
 	bool check;
 	SOCKET dataSocket;
+	clock_t clockStart = 0, clockEnd = 0;
+	int timeout = 0;
+	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
 
 	cmd.erase(0, 3);
 	chuanHoa(cmd);
-	int timeout = 0;
-	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
 
 	if (modePasv)
 		check = passiveMode(soc, dataSocket);
 	else
-		check = activeMode(soc, dataSocket);
+		check = activeMode(soc, dataSocket, 0);
 	//lenh NLST
 	memset(buf, 0, sizeof(buf));
 	sprintf(buf, "LIST %s\r\n", cmd.c_str());
@@ -367,27 +413,33 @@ void dir(SOCKET soc, string cmd, bool modePasv)
 	{
 		if (!modePasv)
 			dataSocket = accept(dataSocket, NULL, NULL);
+		clockStart = clock();
 		while (1)
 		{
 			memset(buf, 0, sizeof buf);
 			Bytes = recv(dataSocket, buf, 1023, 0);
+			byteSum += Bytes;
 			if (Bytes == 0)
 				break;
 			printf("%s", buf);
 			if (Bytes != 1023)
 				break;
 		}
+		clockEnd = clock() + 1;
 		//connSocket trả về cmd phản hồi 
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
 		printf("%s", buf);
+		double times = (clockEnd - clockStart) * 1.0 / CLOCKS_PER_SEC;
+		printf("%lu bytes received in %0.3lfseconds %0.3lfKbytes/sec.\n", byteSum, times, (byteSum*1.0 / 1024) / times);
 	}
 	closesocket(dataSocket);
 }
-
+//Hàm lcd
 void lcd(char direct[]) {
-	static wchar_t rootPath[BUFSIZ] = L""; // Lưu lại path của thư mục gốc ban đầu
-	wchar_t info[BUFSIZ];
+	const int  bufsize = 1024;
+	static wchar_t rootPath[bufsize] = L""; // Lưu lại path của thư mục gốc ban đầu
+	wchar_t info[bufsize];
 	int check = 0;
 
 	// Establish mode for print unicode text
@@ -396,19 +448,19 @@ void lcd(char direct[]) {
 
 	// Kiểm tra ban đầu nếu path gốc chưa lưu lại thì lưu lại
 	if (wcscmp(rootPath, L"") == 0) {
-		wmemset(rootPath, 0, sizeof rootPath);
-		_wgetcwd(rootPath, sizeof(rootPath));
+		wmemset(rootPath, L'\0', bufsize);
+		_wgetcwd(rootPath, bufsize);
 	}
 
 	if (strcmp(direct, "lcd") == 0) {
 		check = SetCurrentDirectoryW(rootPath);
 	}
-	else {
-		//check = SetCurrentDirectory(direct + 4);
+	else if (direct[strlen(direct)-1] != ':'){
+		check = SetCurrentDirectory(direct + 4);
 	}
 
 	if (check) {
-		GetCurrentDirectoryW(BUFSIZ, info);
+		GetCurrentDirectoryW(bufsize, info);
 		wcout << "Local directory now " << info << "." << endl;
 	}
 	else {
@@ -470,94 +522,107 @@ void quit(SOCKET soc)
 void get(SOCKET soc, string cmd, bool modePasv)
 {
 	char buf[1024]; //??2048 4096
-	int Bytes;
+	int Bytes, byteSum = 0;
 	SOCKET dataSocket;
 	ofstream fOut;
-	string temp, rm, lc;
-
+	string temp, remoteFile, localFile;
+	clock_t clockStart = 0, clockEnd = 0;
 	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
 
 	if (cmd == "")
 	{
-		std::cout << "Remote file: ";
-		getline(cin, rm);
-		std::cout << "Local file: ";
-		getline(cin, lc); //ten file up len server
+		printf("Remote file: ");
+		getline(cin, remoteFile);
+		printf("Local file: ");
+		getline(cin, localFile); //ten file up len server
 	}
 	else
 	{
-		rm = getFileName(cmd);
-		lc = getFileName(cmd);
+		remoteFile = getFileName(cmd);
+		localFile = getFileName(cmd);
 	}
-	if (lc == "")
+
+	if (localFile == "")
 	{
-		for (int i = rm.length(); i >= 0; i--)
+		for (int i = remoteFile.length(); i >= 0; i--)
 		{
-			if (rm[i] == '\\' || rm[i] == '/')
+			if (remoteFile[i] == '\\' || remoteFile[i] == '/')
 				break;
-			lc = rm[i] + lc;
+			localFile = remoteFile[i] + localFile;
 		}
 	}
 
-	
-	fOut.open(lc, ios::out | ios::binary);
-	if (fOut.is_open())
+	bool check;
+	if (modePasv)
+		check = passiveMode(soc, dataSocket);
+	else
+		check = activeMode(soc, dataSocket, 0);
+
+	memset(buf, 0, sizeof buf);
+	sprintf(buf, "RETR %s\r\n", remoteFile.c_str());
+	Bytes = send(soc, buf, strlen(buf), 0);
+
+	memset(buf, 0, sizeof buf);
+	Bytes = recv(soc, buf, sizeof buf, 0);
+	printf("%s", buf);
+	sscanf(buf, "%d", &Bytes);
+	if (check && Bytes != 550 && Bytes != 501)
 	{
-		bool check;
-		if (modePasv)
-			check = passiveMode(soc, dataSocket);
-		else
-			check = activeMode(soc, dataSocket);
-
-		memset(buf, 0, sizeof buf);
-		sprintf(buf, "RETR %s\r\n", rm.c_str());
-		Bytes = send(soc, buf, strlen(buf), 0);
-
-		memset(buf, 0, sizeof buf);
-		Bytes = recv(soc, buf, sizeof buf, 0);
-		printf("%s", buf);
-		sscanf(buf, "%d", &Bytes);
-		if (check && Bytes != 550 && Bytes != 501)
+		if (!modePasv)
+			dataSocket = accept(dataSocket, NULL, NULL);
+		fOut.open(localFile, ios::out | ios::binary);
+		if (fOut.is_open())
 		{
-			if (!modePasv)
-				dataSocket = accept(dataSocket, NULL, NULL);
+			clockStart = clock();
 			while (1)
 			{
 				memset(buf, 0, sizeof buf);
 				Bytes = recv(dataSocket, buf, sizeof buf, 0);
+				if (Bytes == 0)
+					break;
+				byteSum += Bytes;
 				fOut.write(buf, Bytes);
+
+			}
+			clockEnd = clock();
+			fOut.close();
+		}
+		else
+		{
+			clockStart = clock();
+			while (1)
+			{
+				memset(buf, 0, sizeof buf);
+				Bytes = recv(dataSocket, buf, sizeof buf, 0);
+				byteSum += Bytes;
 				if (Bytes != sizeof buf)
 					break;
 			}
+			clockEnd = clock();
+			cout << "> R: No such process\n";
 		}
-		fOut.close();
-		closesocket(dataSocket);
 		//connSocket trả về thông báo gửi thành công/ thất bại 
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
 		printf("%s", buf);
-		
+		double times = (clockEnd - clockStart) * 1.0 / CLOCKS_PER_SEC;
+		printf("%lu Bytes received in %0.3lfSeconds %0.3lfKbytes/sec.\n", byteSum, times, (byteSum*1.0 / 1024) / times);
 	}
-	else
-	{
-		cout << "> R: No such process\n";
-	}
+	closesocket(dataSocket);
 }
 //Hàm tải về nhiều file
 void mget(SOCKET soc, string cmd, bool modePasv)
 {
-	char buf[1024], flnm[1024], c;
+	char buf[1024], c;
 	bool check;
-	string temp, filename;
+	string ListOfFile, filename;
 	SOCKET dataSocket;
 	int Bytes, k;
 
 	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
-	//xóa mget và chuẩn hóa chuỗi cmd
-	cmd.erase(0, 4);
-	chuanHoa(cmd);
+
 	//nếu cmd rỗng tiến hành đọc tên file
 	if (cmd == "")
 	{
@@ -565,34 +630,16 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 		rewind(stdin);
 		getline(cin, cmd);
 	}
-	
+
 	while (cmd != "")
 	{
+		//546 - 584: tách filename cần get từ chuỗi gửi cho server xác nhận sự tồn tại
 		chuanHoa(cmd);
-		filename = "";
-		memset(buf, 0, sizeof buf);
-		sscanf(cmd.c_str(), "%s", buf);//đọc file name của tệp cần lấy từ cmd
-		cmd.erase(0, strlen(buf));
-		filename = buf;
-		if (buf[0] == '\"')
-		{
-			filename.erase(0, 1);
-			while (filename[filename.length() - 1] != '\"' && cmd != "") 
-			{
-				chuanHoa(cmd);
-				memset(buf, 0, sizeof buf);
-				sscanf(cmd.c_str(), "%s", buf);
-				filename += ' ';
-				filename += buf;
-				cmd.erase(0, strlen(buf));
-			}
-			filename.erase(filename.length() - 1);
-		}
-
+		filename = getFileName(cmd);
 		if (modePasv)
 			check = passiveMode(soc, dataSocket);
 		else
-			check = activeMode(soc, dataSocket);
+			check = activeMode(soc, dataSocket, 1);
 
 		//lenh NLST
 		memset(buf, 0, sizeof(buf));
@@ -600,10 +647,10 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 		send(soc, buf, strlen(buf), 0);
 		memset(buf, 0, sizeof buf);
 		recv(soc, buf, sizeof buf, 0);
-		//printf("%s", buf);//	std::cout << buf;
-		temp = "";
 		sscanf(buf, "%d", &k);
-		if (check && k != 550)
+		ListOfFile = "";
+
+		if (check && k != 550 && k != 501)
 		{
 			if (!modePasv)
 				dataSocket = accept(dataSocket, NULL, NULL);
@@ -612,24 +659,26 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 			{
 				memset(buf, 0, sizeof buf);
 				Bytes = recv(dataSocket, buf, sizeof buf, 0);
-				temp += buf;
+				ListOfFile += buf;
 				if (Bytes != 1024)
 					break;
 			}
-
 			//connSocket trả về cmd phản hồi 
 			memset(buf, 0, sizeof buf);
 			recv(soc, buf, sizeof buf, 0);
-			//printf("%s", buf);
-			closesocket(dataSocket);
 		}
 		else
-			printf("#[%s]: %s", filename, buf);
+		{
+			cout << "[" << filename << "]: ";
+			printf("%s", buf);
+		}
 
-		while (temp != "") 
+		closesocket(dataSocket);
+		//xử lý từng file trong chuỗi nhận về từ server
+		while (ListOfFile != "")
 		{
 			memset(buf, 0, sizeof buf);
-			sscanf(temp.c_str(), "%[^\r]", buf);
+			sscanf(ListOfFile.c_str(), "%[^\r]", buf);
 			printf("mget %s?", buf);
 			filename = buf;
 			if (filename.find(" ") != -1)
@@ -638,58 +687,57 @@ void mget(SOCKET soc, string cmd, bool modePasv)
 			if (c == 'y' || c == 'Y' || c == '\n')
 				get(soc, filename, modePasv);
 			rewind(stdin);
-			temp.erase(0, strlen(buf) + 2); //xóa thêm 2 kí tự \r\n
-			chuanHoa(temp);
+			ListOfFile.erase(0, strlen(buf) + 2); //xóa thêm 2 kí tự \r\n
+			chuanHoa(ListOfFile);
 		}
-		//cmd.erase(0, strlen(flnm));
 	}
 }
-
+//Hàm upload 1 file
 void put(SOCKET soc, string cmd, bool modePasv)
 {
-	char buf[4096]; //co the tang buffer them??
-	string temp, lc, rm;
-	int Bytes;
+	char buf[4096];
+	string localFile, remoteFile;
+	int Bytes, byteSum = 0;
 	SOCKET dataSocket;
 	ifstream fIn;
-
-	int timeout = 0, flag;
+	clock_t clockStart = 0, clockEnd = 0;
+	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
 	chuanHoa(cmd);
 	////TH1: put <lcfile> [<rmfile>]
 	if (cmd == "")
 	{
-		printf("Remote file: ");
-		getline(cin, lc);
 		printf("Local file: ");
-		getline(cin, rm); //ten file up len server
+		getline(cin, localFile);
+		printf("Local file: ");
+		getline(cin, remoteFile); //ten file up len server
 	}
 	else
 	{
-		lc = getFileName(cmd);
-		rm = getFileName(cmd);
+		localFile = getFileName(cmd);
+		remoteFile = getFileName(cmd);
 	}
-	if (rm == "")
+	if (remoteFile == "")
 	{
-		for (int i = lc.length(); i >= 0; i--)
+		for (int i = localFile.length(); i >= 0; i--)
 		{
-			if (lc[i] == '\\' || lc[i] == '/')
+			if (localFile[i] == '\\' || localFile[i] == '/')
 				break;
-			rm = lc[i] + rm;
+			remoteFile = localFile[i] + remoteFile;
 		}
 	}
 
-	fIn.open(lc, ios::in | ios::binary);
+	fIn.open(localFile.c_str(), ios::in | ios::binary);
 	if (fIn.is_open())
 	{
 		bool check;
 		if (modePasv)
 			check = passiveMode(soc, dataSocket);
 		else
-			check = activeMode(soc, dataSocket);
+			check = activeMode(soc, dataSocket, 0);
 
 		memset(buf, 0, sizeof buf);
-		sprintf(buf, "STOR %s\r\n", rm.c_str());
+		sprintf(buf, "STOR %s\r\n", remoteFile.c_str());
 		Bytes = send(soc, buf, strlen(buf), 0);
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);
@@ -704,7 +752,7 @@ void put(SOCKET soc, string cmd, bool modePasv)
 			fIn.seekg(0, fIn.end);
 			long long int Size = (fIn.tellg()) % (sizeof buf);
 			fIn.seekg(0, fIn.beg);
-
+			clockStart = clock();
 			while (!fIn.eof())
 			{
 				memset(buf, 0, sizeof buf);
@@ -712,28 +760,33 @@ void put(SOCKET soc, string cmd, bool modePasv)
 				if (fIn.eof())
 				{
 					send(dataSocket, buf, Size, 0);
+					byteSum += Size;
 					break;
 				}
 				send(dataSocket, buf, sizeof buf, 0);
+				byteSum += sizeof buf;
 			}
+			fIn.close();
+			clockEnd = clock();
 			closesocket(dataSocket);
 			//connSocket trả về cmd 
 			memset(buf, 0, sizeof buf);
 			Bytes = recv(soc, buf, sizeof buf, 0);
 			printf("%s", buf);
-			fIn.close();
+			double times = (clockEnd - clockStart) * 1.0 / CLOCKS_PER_SEC;
+			printf("%lu Bytes received in %0.3lfSeconds %0.3lfKbytes/sec.\n", byteSum, times, (byteSum*1.0 / 1024) / times);
 		}
 	}
 	else
 	{
-		cout << lc << " File not found\n";
+		printf("%s: File not found\n", localFile.c_str());
 	}
 }
-
+//Hàm upload nhiều file
 void mput(SOCKET soc, string cmd, bool modePasv)
 {
 	char buf[1024], c;
-	string filename;
+	string filename, temp;
 	WIN32_FIND_DATA FindFileData;
 	HANDLE hFind;
 
@@ -753,13 +806,13 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 		TCHAR patter[MAX_PATH];
 
 		memset(patter, 0x00, MAX_PATH);
-		
-		mbstowcs(patter, filename.c_str(), MAX_PATH);
+
+		mbstowcs((wchar_t*)patter, filename.c_str(), MAX_PATH);
 		hFind = FindFirstFile(patter, &FindFileData);
 		if (hFind == INVALID_HANDLE_VALUE)
 		{
 			printf("FindFirstFile failed (%d)\n", GetLastError());
-			printf("%s: File not found\n", filename);
+			printf("[%s]: File not found\n", filename.c_str());
 		}
 		else
 		{
@@ -774,9 +827,9 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 				else
 				{
 					memset(buf, 0, sizeof buf);
-					wcstombs(buf, FindFileData.cFileName, sizeof buf);
-					string temp = "";
-		
+					wcstombs(buf, (wchar_t*)FindFileData.cFileName, sizeof buf);
+					temp = "";
+
 					if (t1 != -1)
 						temp = filename.substr(0, t1 + 1);
 					else if (t2 != -1)
@@ -787,6 +840,7 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 					c = cin.get();
 					if (c == 'y' || c == 'Y' || c == '\n')
 						put(soc, temp, modePasv);
+					rewind(stdout);
 					rewind(stdin);
 				}
 			} while (FindNextFile(hFind, &FindFileData));
@@ -794,25 +848,23 @@ void mput(SOCKET soc, string cmd, bool modePasv)
 		}
 	}
 }
-
 //Hàm xóa 1 file
 void Delete(SOCKET soc, string cmd)
 {
 	char buf[1024];
 	int Bytes;
-
 	int timeout = 0;
 	setsockopt(soc, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(int));
+
 	chuanHoa(cmd);
 	if (cmd == "")
 	{
 		std::cout << "Remote file: ";
 		getline(cin, cmd);
 	}
-
 	memset(buf, 0, sizeof buf);
-	sprintf(buf, "DELE %s\r\n",cmd.c_str());
-	Bytes = send(soc, buf, strlen(buf), 0);
+	sprintf(buf, "DELE %s\r\n", cmd.c_str());
+	send(soc, buf, strlen(buf), 0);
 	//connSocket trả về cmd 
 	memset(buf, 0, sizeof buf);
 	Bytes = recv(soc, buf, sizeof buf, 0);
@@ -831,29 +883,28 @@ void mDelete(SOCKET soc, string cmd, bool modePasv)
 
 	cmd.erase(0, 7);//xoa mdelete
 	chuanHoa(cmd);
-	
+
 	if (cmd == "") //doc file neu cmd chi co lenh mdelete
 	{
 		printf("Remote files: ");
 		getline(cin, cmd);
 	}
-	int pos1, pos2;
+
 	while (cmd != "")
 	{
 		filename = getFileName(cmd);
-	//	pos1 = filename.find_last_of('\\'); pos2 = filename.find_last_of('/');
 		bool check;
 		if (modePasv)
 			check = passiveMode(soc, dataSocket);
 		else
-			check = activeMode(soc, dataSocket);
+			check = activeMode(soc, dataSocket, 1);
 		//lenh NLST
 		memset(buf, 0, sizeof buf);
 		sprintf(buf, "NLST %s\r\n", filename.c_str());
 		send(soc, buf, strlen(buf), 0);
 		memset(buf, 0, sizeof buf);
 		recv(soc, buf, sizeof buf, 0);
-		printf("%s", buf);//	std::cout << buf;
+		printf("%s", buf);
 
 		sscanf(buf, "%d", &k);
 		if (check && k != 550 && k != 501)
@@ -872,10 +923,9 @@ void mDelete(SOCKET soc, string cmd, bool modePasv)
 			//connSocket trả về cmd phản hồi 
 			memset(buf, 0, sizeof buf);
 			Bytes = recv(soc, buf, sizeof buf, 0);
-			//printf("%s", buf);
 		}
 		closesocket(dataSocket);
-		//filename
+
 		while (temp != "") {
 			memset(buf, 0, sizeof buf);
 			sscanf(temp.c_str(), "%[^\r]", buf);
@@ -898,7 +948,7 @@ void mkdir(SOCKET soc, string cmd)
 
 	cmd = cmd.erase(0, 5);
 	chuanHoa(cmd);
-	
+
 	if (cmd == "")
 	{
 		std::cout << "Directory name: ";
@@ -917,15 +967,14 @@ void rmdir(SOCKET soc, string cmd)
 {
 	char buf[1024];
 	int Bytes;
-
 	cmd = cmd.erase(0, 5);
-	chuanHoa(cmd);
-	
+
 	if (cmd == "")
 	{
 		std::cout << "Directory name: ";
 		getline(cin, cmd);
 	}
+
 	memset(buf, 0, sizeof buf);
 	sprintf(buf, "RMD %s\r\n", cmd.c_str());
 	Bytes = send(soc, buf, strlen(buf), 0);

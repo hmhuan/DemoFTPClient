@@ -5,16 +5,19 @@
 #include <iostream>
 #include <WinSock2.h>
 #include <string>
+#include <cstring>
 #include <fstream>
 #include <tchar.h>
 #include <fcntl.h>
 #include <io.h>
+#include <time.h>
 
 #pragma comment(lib, "Ws2_32.lib")
+#pragma execution_character_set( "UTF-8" )
 
 using namespace std;
 
-struct IP { 
+struct IP {
 	int a, b, c, d;
 	void getIP(struct sockaddr_in s)
 	{
@@ -27,13 +30,15 @@ struct IP {
 void chuanHoa(string &s);
 string getFileName(string &cmd);
 
-
 void errexit(const char *, ...);
 void pause(void);
 void replylogcode(int code);
 
+void connectSocket(SOCKET &soc, HOSTENT *&pHostEnt , char* ServerName);
+
+void disconnectSocket(SOCKET &soc);
 //1. 
-void LoginFTP(SOCKET socket_descriptor, HOSTENT * pHostEnt);
+bool LoginFTP(SOCKET &socket_descriptor, HOSTENT * &pHostEnt);
 
 //2. Liệt kê được danh sách các thư mục, tập tin trên Server (ls, dir)
 void dir(SOCKET soc, string cmd, bool modePasv);
@@ -72,7 +77,7 @@ void pwd(SOCKET soc);
 
 //14. Chuyển sang trạng thái passive
 bool passiveMode(SOCKET soc, SOCKET &dsoc);
-bool activeMode(SOCKET soc, SOCKET &dsoc);
+bool activeMode(SOCKET soc, SOCKET &dsoc, int stat);
 
-//15. Thoát khải Server
+//15. Thoát khỏi Server
 void quit(SOCKET soc);

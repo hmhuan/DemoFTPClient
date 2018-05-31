@@ -66,6 +66,10 @@ int main(int argc, char* argv[])
 			{
 				break;
 			}
+			else if (temp.substr(0, 3) == "LCD")
+			{
+				lcd((char*)cmd.c_str());
+			}
 			else if (temp.substr(0, 4) == "OPEN")
 			{
 				cmd.erase(0, 4);

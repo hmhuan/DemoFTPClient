@@ -446,6 +446,7 @@ void lcd(char direct[]) {
 	_setmode(_fileno(stdin), _O_U16TEXT);
 	_setmode(_fileno(stdout), _O_U16TEXT);
 
+	wmemset(info, L'\0', bufsize);
 	// Kiểm tra ban đầu nếu path gốc chưa lưu lại thì lưu lại
 	if (wcscmp(rootPath, L"") == 0) {
 		wmemset(rootPath, L'\0', bufsize);
@@ -456,7 +457,8 @@ void lcd(char direct[]) {
 		check = SetCurrentDirectoryW(rootPath);
 	}
 	else if (direct[strlen(direct)-1] != ':'){
-		check = SetCurrentDirectory(direct + 4);
+		mbstowcs(info, direct, bufsize);
+		check = SetCurrentDirectoryW(info + 4);
 	}
 
 	if (check) {

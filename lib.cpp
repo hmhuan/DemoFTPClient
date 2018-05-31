@@ -373,7 +373,6 @@ void ls(SOCKET soc, string cmd, bool modePasv)
 				break;
 		}
 		clockEnd = clock() + 1;
-		cout << clockStart << " " << clockEnd << endl;
 		//connSocket trả về cmd phản hồi 
 		memset(buf, 0, sizeof buf);
 		Bytes = recv(soc, buf, sizeof buf, 0);

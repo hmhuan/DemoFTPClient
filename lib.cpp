@@ -968,8 +968,8 @@ void rmdir(SOCKET soc, string cmd)
 {
 	char buf[1024];
 	int Bytes;
-	cmd = cmd.erase(0, 5);
-
+	cmd.erase(0, 5);
+	chuanHoa(cmd);
 	if (cmd == "")
 	{
 		std::cout << "Directory name: ";
